@@ -253,6 +253,12 @@ def zwaveEvent(physicalgraph.zwave.commands.firmwareupdatemdv2.FirmwareMdReport 
   createEvent([name: "FirmwareMdReport", value: firmware_report, descriptionText: "$device.displayName FIRMWARE_REPORT: $firmware_report", isStateChange: false])
 }
 
+def zwaveEvent(physicalgraph.zwave.commands.sceneactivationv1.SceneActivationSet cmd) {
+  Integer button = ((cmd.sceneId + 1) / 2) as Integer
+  Boolean held = !(cmd.sceneId % 2)
+  buttonEvent(button, held, "digital")
+}
+
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
   log.debug "ERROR: $cmd"
   createEvent(descriptionText: "$device.displayName command not implemented: $cmd", displayed: true)
@@ -582,6 +588,7 @@ def installed() {
 
 def updated() {
   log.debug "updated()"
+  def results = []
     
   // Device-Watch simply pings if no device events received for 32min(checkInterval)
   sendEvent(name: "checkInterval", value: 2 * 15 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
@@ -602,6 +609,23 @@ def updated() {
       indicatorWhenOn()                                                                                 
       break                                                                                             
   }
+
+  results << response(commands([
+    zwave.basicV1.basicGet(),
+    zwave.versionV1.versionGet(),
+    zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
+    zwave.firmwareUpdateMdV1.firmwareMdGet(),
+    zwave.associationGrpInfoV1.associationGroupCommandListGet(),
+    zwave.associationGrpInfoV1.associationGroupInfoGet(),
+    zwave.associationGrpInfoV1.associationGroupNameGet(),
+    zwave.associationV2.associationGet(groupingIdentifier: getAssociationGroup()),
+    zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true),
+    zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 0, level: 0, override: true),
+    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1),
+    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2)
+  ]))
+  
+  return results
 }
 
 private command(physicalgraph.zwave.Command cmd) {
