@@ -29,7 +29,7 @@
  */
  
 def getDriverVersion () {
-	return "2.91"
+	return "3.41"
 }
 
 def getAssociationGroup () {
@@ -41,12 +41,13 @@ metadata {
     capability "Actuator"
     capability "Button"
     capability "Polling"
-    capability "Health Check"
+    // capability "Health Check"
     capability "Indicator"
     capability "Refresh"
     capability "Sensor"
     capability "Switch"
     capability "Light"
+    capability "Configuration"
 
     command "tapUp2"
     command "tapDown2"
@@ -132,10 +133,14 @@ metadata {
     
     valueTile("driverVersion", "device.driverVersion", width:2, height:2, inactiveLabel: true, decoration: "flat") {
       state "default", label: '${currentValue}'
-	}
+    }
+
+    standardTile("configure", "device.switch", width: 2, height: 2, inactiveLabel: false, decoration: "flat") {
+      state "default", label:'', action:"configuration.configure", icon:"st.secondary.configure"
+    }
 
     main "switch"
-    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "indicator", "firmwareVersion", "driverVersion", "refresh"])
+    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "indicator", "firmwareVersion", "driverVersion", "refresh", "configure"])
   }
 }
 
@@ -216,6 +221,12 @@ def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerS
   result << createEvent(name: "ProductCode", value: productCode)
   result << createEvent(name: "WirelessConfig", value: wirelessConfig)
 
+  if ( cmd.manufacturerId == 12 ) {
+    updateDataValue("manufacturer", "HomeSeer")
+  } else if ( cmd.manufacturerId == 388 ) {
+    updateDataValue("manufacturer", "Dragon Tech Industrial, Ltd.")
+  }
+
   def msr = String.format("%04X-%04X-%04X", cmd.manufacturerId, cmd.productTypeId, cmd.productId)
   updateDataValue("MSR", msr)
   updateDataValue("manufacturer", cmd.manufacturerName)
@@ -253,7 +264,7 @@ def zwaveEvent(physicalgraph.zwave.commands.hailv1.Hail cmd) {
 }
 
 def on() {
-  log.debug "on()"
+  sendEvent(tapDown1Response("digital"))
   return commands([
     zwave.basicV1.basicSet(value: 0xFF),
     zwave.switchBinaryV1.switchBinaryGet()
@@ -266,6 +277,11 @@ def off() {
     zwave.basicV1.basicSet(value: 0x00),
     zwave.switchBinaryV1.switchBinaryGet()
   ])
+}
+
+def configure() {
+  log.debug "configure()"
+  setConfigured()
 }
 
 def poll() {
@@ -339,7 +355,9 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
 
       case 1:
       // Press Once
-      result=createEvent([name: "switch", value: "on", type: "physical"])
+      result += createEvent(tapUp1Response("physical"))
+      result += response("delay 100")
+      result += createEvent([name: "switch", value: "on", type: "physical"])
       break
       case 2:
       // Hold
@@ -365,7 +383,9 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
     // Down
     switch (cmd.keyAttributes) {
       case 0:
-      result=createEvent([name: "switch", value: "off", type: "physical"])
+      result += createEvent(tapDown1Response("physical"))
+      result += response("delay 100")
+      result += createEvent([name: "switch", value: "off", type: "physical"])
       break
 
       case 1:
@@ -397,7 +417,6 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
   }  
   return result
 }
-
 def tapUp2Response(String buttonType) {
   sendEvent(name: "status" , value: "Tap ▲▲")
   [name: "button", value: "pushed", data: [buttonNumber: "1"], descriptionText: "$device.displayName Tap-Up-2 (button 1) pressed", 
@@ -434,6 +453,16 @@ def holdDownResponse(String buttonType) {
   isStateChange: true, type: "$buttonType"]
 }
 
+def tapUp1Response(String buttonType) {
+  sendEvent(name: "status" , value: "Tap ▲")
+  [name: "button", value: "pushed", data: [buttonNumber: "7"], descriptionText: "$device.displayName Tap-Up-1 (button 7) pressed", isStateChange: true, type: "$buttonType"]
+}
+
+def tapDown1Response(String buttontype) {
+  sendEvent(name: "status" , value: "Tap ▼")
+  [name: "button", value: "pushed", data: [buttonNumber: "8"], descriptionText: "$device.displayName Tap-Down-1 (button 8) pressed", isStateChange: true, type: "$buttonType"]
+}
+
 def tapUp2() {
   sendEvent(tapUp2Response("digital"))
 }
@@ -456,6 +485,33 @@ def holdUp() {
 
 def holdDown() {
   sendEvent(holdDownResponse("digital"))
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationGroupingsReport cmd) {
+  log.debug ("AssociationGroupingsReport() $cmd")
+  def result = []
+
+  result << createEvent([descriptionText: "$device.displayName AssociationGroupNameReport: $cmd", isStateChange: true, displayed: true])
+
+  return result
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.associationgrpinfov1.AssociationGroupInfoReport cmd) {
+  log.debug ("AssociationGroupingsReport() $cmd")
+  def result = []
+
+  result << createEvent([descriptionText: "$device.displayName AssociationGroupNameReport: $cmd", isStateChange: true, displayed: true])
+
+  return result
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.associationgrpinfov1.AssociationGroupNameReport cmd) {
+  log.debug "AssociationGroupNameReport() $cmd"
+  def result = []
+
+  result << createEvent(descriptionText: "$device.displayName AssociationGroupNameReport: $cmd", displayed: true)
+
+  return result
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd) {
