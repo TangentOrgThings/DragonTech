@@ -36,7 +36,7 @@
  
 
 def getDriverVersion() {
-  return "4.21"
+  return "4.23"
 }
 
 def getAssociationGroup() {
@@ -636,6 +636,9 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
   log.debug "$device.displayName AssociationReport()"
   
   def result = []
+  def cmds = []
+  
+  cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: cmd.groupingIdentifier)
   
   // Lifeline
   if (cmd.groupingIdentifier == 0x01) {
@@ -690,8 +693,6 @@ def setConfigured() {
     zwave.firmwareUpdateMdV2.firmwareMdGet(),
     zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
     zwave.associationV2.associationGroupingsGet(),
-    // zwave.associationGrpInfoV1.associationGroupNameGet(),
-    // zwave.associationGrpInfoV1.associationGroupInfoGet()
   ], 800))
   
   return results
@@ -704,8 +705,6 @@ def configure() {
   results << commands([
         zwave.associationV2.associationGroupingsGet(),
         // zwave.associationGrpInfoV1.associationGroupCommandListGet(),
-        // zwave.associationGrpInfoV1.associationGroupInfoGet(),
-        // zwave.associationGrpInfoV1.associationGroupNameGet(),
         zwave.versionv1.VersionGet(),
         zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
         zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true),
