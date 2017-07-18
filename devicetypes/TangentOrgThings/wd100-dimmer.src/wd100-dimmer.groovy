@@ -36,7 +36,7 @@
  
 
 def getDriverVersion() {
-  return "4.21"
+  return "4.32"
 }
 
 def getAssociationGroup() {
@@ -171,9 +171,19 @@ metadata {
     standardTile("holdDown", "device.button", width: 2, height: 2, decoration: "flat") {
       state "default", label: "Hold ▼", backgroundColor: "#ffffff", action: "holdDown", icon: "st.Home.home30"
     }
+
+		valueTile("illuminance", "device.illuminance", width: 2, height: 2) {
+			state("illuminance", label:'${currentValue}', unit:"lux",
+			backgroundColors:[
+					[value: 8, color: "#767676"],
+					[value: 300, color: "#ffa81e"],
+					[value: 1000, color: "#fbd41b"]
+				]
+			)
+		}
       
     main(["switch"])
-    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "level", "driverVersion", "refresh", "configure"])
+    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "level", "driverVersion", "refresh", "configure", "illuminance"])
   }
 }
 
@@ -241,7 +251,7 @@ def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) { //physical d
 }
 
 def buttonEvent(button, held, buttonType) {
-	def result = []
+  def result = []
   log.debug("buttonEvent: $button  held: $held  type: $buttonType")
   button = button as Integer
   result << createEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true, type: "$buttonType")
@@ -281,8 +291,12 @@ private dimmerEvents(physicalgraph.zwave.Command cmd) {
   if (cmd.value && cmd.value <= 100) {
     result << createEvent(name: "level", value: cmd.value, unit: "%")
   }
-  
-  result << createEvent(name: "illuminanceMeasurement", value: cmd.value, unit: "%")
+
+  if (cmd.value) {
+		result << createEvent(name: "illuminance", value: 300, unit: "lux")
+  } else {
+		result << createEvent(name: "illuminance", value: 8, unit: "lux")
+  }
   
   return result
 }
@@ -376,10 +390,13 @@ def setLevel (value) {
   log.info "setLevel >> value: $value"
   def valueaux = value as Integer
   def level = Math.max(Math.min(valueaux, 99), 0)
+  
   if (level > 0) {
     sendEvent(name: "switch", value: "on")
+    sendEvent(name: "illuminance", value: 300, unit: "lux")
   } else {
     sendEvent(name: "switch", value: "off")
+    sendEvent(name: "illuminance", value: 8, unit: "lux")
   }
   sendEvent(name: "level", value: level, unit: "%")
 
@@ -395,6 +412,13 @@ def setLevel(value, duration) {
   def level = Math.max(Math.min(valueaux, 99), 0)
   def dimmingDuration = duration < 128 ? duration : 128 + Math.round(duration / 60)
   def getStatusDelay = duration < 128 ? (duration*1000)+2000 : (Math.round(duration / 60)*60*1000)+2000
+       
+  if (level > 0) {
+    sendEvent(name: "illuminance", value: 300, unit: "lux")
+  } else {
+    sendEvent(name: "illuminance", value: 8, unit: "lux")
+  }
+ 
   commands([
     zwave.switchMultilevelV1.switchMultilevelSet(value: level, dimmingDuration: dimmingDuration),
     zwave.switchMultilevelV1.switchMultilevelGet()
@@ -636,6 +660,9 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
   log.debug "$device.displayName AssociationReport()"
   
   def result = []
+  def cmds = []
+  
+  cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: cmd.groupingIdentifier)
   
   // Lifeline
   if (cmd.groupingIdentifier == 0x01) {
@@ -703,18 +730,15 @@ def configure() {
   results += setConfigured()
   results << commands([
         zwave.associationV2.associationGroupingsGet(),
-        // zwave.associationGrpInfoV1.associationGroupCommandListGet(),
-        // zwave.associationGrpInfoV1.associationGroupInfoGet(),
-        // zwave.associationGrpInfoV1.associationGroupNameGet(),
         zwave.versionv1.VersionGet(),
         zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
         zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true),
         zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 5, level: 0, override: true),
         zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1),
         zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2)
-	], 800)
+    ], 800)
     
-    return results
+  return results
 }
 
 def installed() {
@@ -819,15 +843,13 @@ private commands(commands, delay=200) {
  *  Returns a physicalgraph.zwave.Command.
  **/
 private encapCommand(physicalgraph.zwave.Command cmd) {
-    if (state.useSecurity) {
-        return zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd)
-    }
-    else if (state.useCrc16) {
-        return zwave.crc16EncapV1.crc16Encap().encapsulate(cmd)
-    }
-    else {
-        return cmd
-    }
+  if (state.sec) {
+    return zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd)
+  } else if (state.useCrc16) {
+    return zwave.crc16EncapV1.crc16Encap().encapsulate(cmd)
+  } else {
+    return cmd
+  }
 }
 
 /**
@@ -837,7 +859,7 @@ private encapCommand(physicalgraph.zwave.Command cmd) {
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
 private prepCommands(cmds, delay=200) {
-    return response(delayBetween(cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? encapCommand(it).format() : it }, delay))
+  return response(delayBetween(cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? encapCommand(it).format() : it }, delay))
 }
 
 /**
@@ -847,5 +869,5 @@ private prepCommands(cmds, delay=200) {
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
 private sendCommands(cmds, delay=200) {
-    sendHubCommand( cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? response(encapCommand(it)) : response(it) }, delay)
+  sendHubCommand( cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? response(encapCommand(it)) : response(it) }, delay)
 }

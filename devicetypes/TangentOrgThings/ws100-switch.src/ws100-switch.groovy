@@ -29,7 +29,7 @@
  */
  
 def getDriverVersion () {
-	return "3.81"
+	return "3.92"
 }
 
 def getAssociationGroup () {
@@ -40,14 +40,14 @@ metadata {
   definition (name: "WS100+ Switch", namespace: "TangentOrgThings", author: "brian@tangent.org") {
     capability "Actuator"
     capability "Button"
-    capability "Polling"
-    // capability "Health Check"
+    capability "Configuration"
+    capability "Illuminance Measurement"
     capability "Indicator"
+    capability "Light"
+    capability "Polling"
     capability "Refresh"
     capability "Sensor"
     capability "Switch"
-    capability "Light"
-    capability "Configuration"
 
     command "tapUp2"
     command "tapDown2"
@@ -133,14 +133,28 @@ metadata {
     
     valueTile("driverVersion", "device.driverVersion", width:2, height:2, inactiveLabel: true, decoration: "flat") {
       state "default", label: '${currentValue}'
-	}
+		}
     
     standardTile("configure", "device.switch", width: 2, height: 2, inactiveLabel: false, decoration: "flat") {
       state "default", label:'', action:"configuration.configure", icon:"st.secondary.configure"
     }
+    
+    valueTile("driverVersion", "device.driverVersion", width:2, height:2, inactiveLabel: true, decoration: "flat") {
+      state "default", label: '${currentValue}'
+		}
+
+		valueTile("illuminance", "device.illuminance", width: 2, height: 2) {
+			state("illuminance", label:'${currentValue}', unit:"lux",
+			backgroundColors:[
+					[value: 8, color: "#767676"],
+					[value: 300, color: "#ffa81e"],
+					[value: 1000, color: "#fbd41b"]
+				]
+			)
+		}
 
     main "switch"
-    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "indicator", "firmwareVersion", "driverVersion", "refresh", "configure"])
+    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "indicator", "firmwareVersion", "driverVersion", "refresh", "configure", "illuminance"])
   }
 }
 
@@ -187,17 +201,33 @@ def parse(String description) {
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd) {
   log.debug "BasicReport()"
-  createEvent([name: "switch", value: cmd.value ? "on" : "off", type: "physical"])
+  def result = []
+  
+  result += createEvent(name: "switch", value: cmd.value ? "on" : "off", type:"physical")
+  result += createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
+  
+  return result
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
   log.debug "BasicSet()"
-  createEvent([name: "switch", value: cmd.value ? "on" : "off", type: "physical"])
+  def result = []
+  
+  result += createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "physical")
+  result += createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
+
+	return result
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinaryReport cmd) {
   log.debug "SwitchBinaryReport()"
-  createEvent([name: "switch", value: cmd.value ? "on" : "off", type: "digital"])
+  
+  def result = []
+  
+  result += createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "digital")
+  result += createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
+  
+  return result
 }
 
 def buttonEvent(button, held, buttonType) {
@@ -393,6 +423,7 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
         // result += response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
         result += buttonEvent(7, true, "physical")
       case 1:
+        result += createEvent(name: "illuminance", value: 300, unit: "lux")
         result += createEvent([name: "switch", value: "on", type: "physical"])
         
       break
@@ -423,7 +454,8 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
       case 0:   
         // result += response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
         result += buttonEvent(8, true, "physical")
-      case 1: 
+      case 1:
+        result += createEvent(name: "illuminance", value: 8, unit: "lux")
         result += createEvent([name: "switch", value: "off", type: "physical"])
       break
       
@@ -718,7 +750,7 @@ private encapCommand(physicalgraph.zwave.Command cmd) {
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
 private prepCommands(cmds, delay=200) {
-    return response(delayBetween(cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? encapCommand(it).format() : it }, delay))
+  return response(delayBetween(cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? encapCommand(it).format() : it }, delay))
 }
 
 /**
@@ -728,5 +760,5 @@ private prepCommands(cmds, delay=200) {
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
 private sendCommands(cmds, delay=200) {
-    sendHubCommand( cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? response(encapCommand(it)) : response(it) }, delay)
+  sendHubCommand( cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? response(encapCommand(it)) : response(it) }, delay)
 }
