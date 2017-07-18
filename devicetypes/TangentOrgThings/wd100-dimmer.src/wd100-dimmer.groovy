@@ -717,8 +717,6 @@ def setConfigured() {
     zwave.firmwareUpdateMdV2.firmwareMdGet(),
     zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
     zwave.associationV2.associationGroupingsGet(),
-    // zwave.associationGrpInfoV1.associationGroupNameGet(),
-    // zwave.associationGrpInfoV1.associationGroupInfoGet()
   ], 800))
   
   return results
