@@ -36,11 +36,7 @@
  
 
 def getDriverVersion() {
-  return "4.32"
-}
-
-def getAssociationGroup() {
-  return 1
+  return "4.42"
 }
 
 metadata {
@@ -731,7 +727,8 @@ def prepDevice() {
     zwave.firmwareUpdateMdV1.firmwareMdGet(),
     zwave.associationV2.associationGet(groupingIdentifier: 0x01),
     zwave.associationV2.associationGroupingsGet(),
-    zwave.switchBinaryV1.switchBinaryGet()
+    zwave.switchBinaryV1.switchBinaryGet(),
+    zwave.zwaveCmdClassV1.requestNodeInfo(),
   ]
 }
 
