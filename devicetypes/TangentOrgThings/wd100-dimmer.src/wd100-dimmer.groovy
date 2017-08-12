@@ -36,7 +36,7 @@
 
 
 def getDriverVersion() {
-  return "4.72"
+  return "4.82"
 }
 
 metadata {
@@ -242,8 +242,8 @@ def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd) {
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) { //physical device events ON/OFF
-log.debug("BasicSet() $cmd")
-dimmerEvents(cmd)
+  log.debug("BasicSet() $cmd")
+  dimmerEvents(cmd)
 }
 
 def buttonEvent(button, held, buttonType) {
@@ -271,8 +271,8 @@ def zwaveEvent(physicalgraph.zwave.commands.sceneactuatorconfv1.SceneActuatorCon
 	} else if (cmd.sceneId == 2) {
     if (cmd.level != 0) {
       sendCommands([zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 5, level: 0, override: true)])
-		}
-	}
+    }
+  }
 
   createEvent(descriptionText: "$device.displayName ConfigurationReport: $cmd", displayed: true)
 }
@@ -401,6 +401,14 @@ def off() {
   ], 5000)
 }
 
+def setIlluminance (level) {
+  if (level > 0) {
+    sendEvent(name: "illuminance", value: 300, unit: "lux")
+  } else {
+    sendEvent(name: "illuminance", value: 8, unit: "lux")
+  }
+}
+
 def setLevel (value) {
   log.info "setLevel >> value: $value"
   def valueaux = value as Integer
@@ -408,12 +416,11 @@ def setLevel (value) {
 
   if (level > 0) {
     sendEvent(name: "switch", value: "on")
-    sendEvent(name: "illuminance", value: 300, unit: "lux")
   } else {
     sendEvent(name: "switch", value: "off")
-    sendEvent(name: "illuminance", value: 8, unit: "lux")
   }
   sendEvent(name: "level", value: level, unit: "%")
+  setIlluminance(level)
 
   commands([
     zwave.basicV1.basicSet(value: level),
@@ -427,13 +434,7 @@ def setLevel(value, duration) {
   def level = Math.max(Math.min(valueaux, 99), 0)
   def dimmingDuration = duration < 128 ? duration : 128 + Math.round(duration / 60)
   def getStatusDelay = duration < 128 ? (duration*1000)+2000 : (Math.round(duration / 60)*60*1000)+2000
-
-  if (level > 0) {
-    sendEvent(name: "illuminance", value: 300, unit: "lux")
-  } else {
-    sendEvent(name: "illuminance", value: 8, unit: "lux")
-  }
-
+  
   commands([
     zwave.switchMultilevelV1.switchMultilevelSet(value: level, dimmingDuration: dimmingDuration),
     zwave.switchMultilevelV1.switchMultilevelGet()
@@ -481,25 +482,27 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
       // result << buttonEvent(7, true, "physical")
       // result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
       case 1:
-      result << buttonEvent(7, true, "physical")
-      result << createEvent([name: "switch", value: "on", type: "physical"])
-      break
+        result << buttonEvent(7, true, "physical")
+        result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
+        setIlluminance(80)
+        result << createEvent([name: "switch", value: "on", type: "physical"])
+        break
       case 2:
-      // Hold
-      result << createEvent(holdUpResponse("physical")) 
-      result << createEvent([name: "switch", value: "on", type: "physical"])
-      // result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
-      break
+        // Hold
+        result << createEvent(holdUpResponse("physical")) 
+        result << createEvent([name: "switch", value: "on", type: "physical"])
+        // result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
+        break
       case 3: 
       // 2 Times
-      result << createEvent(tapUp2Response("physical"))
+        result << createEvent(tapUp2Response("physical"))
       break
       case 4:
       // 3 Three times
-      result << createEvent(tapUp3Response("physical"))
-      break
+        result << createEvent(tapUp3Response("physical"))
+        break
       default:
-      log.debug ("unexpected up press keyAttribute: $cmd")
+        log.debug ("unexpected up press keyAttribute: $cmd")
     }
     break
 
@@ -509,23 +512,25 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
       case 0:
       // result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
       case 1:
-      result << buttonEvent(8, true, "physical")
-      result << createEvent([name: "switch", value: "off", type: "physical"])
-      break
+        result << buttonEvent(8, true, "physical")
+        result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
+        setIlluminance(0x00)
+        result << createEvent([name: "switch", value: "off", type: "physical"])
+        break
       case 2:
-      // Hold
-      // result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
-      result << createEvent(holdDownResponse("physical"))
-      result << createEvent([name: "switch", value: "off", type: "physical"])
-      break
+        // Hold
+        // result << response(command(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber)))
+        result << createEvent(holdDownResponse("physical"))
+        result << createEvent([name: "switch", value: "off", type: "physical"])
+        break
       case 3: 
       // 2 Times
-      result << createEvent(tapDown2Response("physical"))
-      break
+        result << createEvent(tapDown2Response("physical"))
+        break
       case 4:
       // 3 Times
-      result=createEvent(tapDown3Response("physical"))
-      break
+        result=createEvent(tapDown3Response("physical"))
+        break
       default:
       log.debug ("unexpected down press keyAttribute: $cmd.keyAttributes")
     } 
@@ -682,14 +687,13 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
   cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: cmd.groupingIdentifier)
 
   // Lifeline
-  if (cmd.nodeIda && cmd.groupingIdentifier == 0x01) {
+  if (cmd.groupingIdentifier == 0x01) {
     def string_of_assoc = ""
     cmd.nodeId.each {
       string_of_assoc += "${it}, "
     }
     def lengthMinus2 = string_of_assoc.length() - 2
     def final_string = string_of_assoc.getAt(0..lengthMinus2)
-    state.Lifeline = final_string
 
     if (cmd.nodeId.any { it == zwaveHubNodeId }) {
       Boolean isStateChange = state.isAssociated ?: false
@@ -739,7 +743,8 @@ def prepDevice() {
     zwave.firmwareUpdateMdV1.firmwareMdGet(),
     zwave.associationV2.associationGet(groupingIdentifier: 0x01),
     zwave.associationV2.associationGroupingsGet(),
-    zwave.switchBinaryV1.switchBinaryGet()
+    zwave.switchBinaryV1.switchBinaryGet(),
+    zwave.zwaveCmdClassV1.requestNodeInfo(),
   ]
 }
 
