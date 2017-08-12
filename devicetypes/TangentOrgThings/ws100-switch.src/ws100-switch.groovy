@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-	return "4.17"
+	return "4.27"
 }
 
 metadata {
@@ -245,11 +245,16 @@ def buttonEvent(button, held, buttonType) {
 
 def zwaveEvent(physicalgraph.zwave.commands.sceneactuatorconfv1.SceneActuatorConfReport cmd) {
 	log.debug("SceneActuatorConfReport: $cmd")
-	/*
-	log.debug " sceneId ${cmd.sceneId}"
-	log.debug " dimmingDuration ${cmd.dimmingDuration}"
-	log.debug " level ${cmd.level}"
-	 */
+
+  if (cmd.sceneId == 1) {
+    if (cmd.level != 255) {
+      sendCommands([zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, level: 255, override: true)])
+		}
+	} else if (cmd.sceneId == 2) {
+    if (cmd.level != 0) {
+      sendCommands([zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, level: 0, override: true)])
+		}
+	}
 
 	createEvent(descriptionText: "$device.displayName SceneActuatorConfReport: $cmd", displayed: true)
 }
@@ -269,7 +274,7 @@ def zwaveEvent(physicalgraph.zwave.commands.configurationv1.ConfigurationReport 
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerSpecificReport cmd) {
-	log.debug("SceneActuatorConfReport: $cmd")
+	log.debug("ManufacturerSpecificReport: $cmd")
 
 	if ( cmd.manufacturerId == 0x000C ) {
 		updateDataValue("manufacturer", "HomeSeer")
@@ -586,7 +591,7 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationGroupingsRe
 
 	if (cmd.supportedGroupings) {
 		cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: 0x01, listMode: 0x01)
-		cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x, listMode: 0x01)
+		cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: 0x01)
 
 		cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [0x01])
 		cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [zwaveHubNodeId])
@@ -595,7 +600,7 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationGroupingsRe
 		if (cmd.supportedGroupings > 1) {
 			for (def x = cmd.supportedGroupings +1; x <= cmd.supportedGroupings; x++) {
 				cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: x, listMode: 0x01)
-				cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x, listMode: 0x01)
+				cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x)
 				cmds << zwave.associationV2.associationGet(groupingIdentifier: x)
 			}
 		}
@@ -632,13 +637,14 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
 
 	cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: cmd.groupingIdentifier)
 
-	if (cmd.groupingIdentifier == 0x01) {
+	if (cmd.nodeId && cmd.groupingIdentifier == 0x01) { // Lifeline
 		def string_of_assoc = ""
 		cmd.nodeId.each {
 			string_of_assoc += "${it}, "
 		}
-		def lengthMinus2 = string_of_assoc.length() - 3
+		def lengthMinus2 = string_of_assoc.length() - 2
 		def final_string = string_of_assoc.getAt(0..lengthMinus2)
+		state.Lifeline = final_string
 
 		if (cmd.nodeId.any { it == zwaveHubNodeId }) {
 			Boolean isStateChange = state.isAssociated ?: false
@@ -682,8 +688,8 @@ def prepDevice() {
 	[
 		zwave.versionV1.versionGet(),
 		zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [zwaveHubNodeId]),
-		zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true),
-		zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 5, level: 0, override: true),
+		zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, level: 255, override: true),
+		zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, level: 0, override: true),
 		zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1),
 		zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2),
 		zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
@@ -749,12 +755,8 @@ private command(physicalgraph.zwave.Command cmd) {
 	}
 }
 
-private commands(commands) {
-	delayBetween(commands.collect{ command(it) })
-}
-
-private commands(commands, delay) {
-	delayBetween(commands.collect{ command(it) }, delay)
+private commands(sent_commands, delay=200) {
+  sendCommands(sent_commands, delay)
 }
 
 /*****************************************************************************************************************

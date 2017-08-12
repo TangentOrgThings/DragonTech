@@ -36,7 +36,7 @@
 
 
 def getDriverVersion() {
-  return "4.62"
+  return "4.72"
 }
 
 metadata {
@@ -76,9 +76,9 @@ metadata {
     // 0 0 0x2001 0 0 0 a 0x30 0x71 0x72 0x86 0x85 0x84 0x80 0x70 0xEF 0x20
     // zw:L type:1101 mfr:0184 prod:4447 model:3034 ver:5.14 zwv:4.24 lib:03 cc:5E,86,72,5A,85,59,73,26,27,70,2C,2B,5B,7A ccOut:5B role:05 ff:8600 ui:8600
     fingerprint type: "1101", mfr: "000C", prod: "4447", model: "3034", deviceJoinName: "HS-WD100+ In-Wall Dimmer"
-    fingerprint type: "1101", mfr: "0184", model: "3034", cc: "5E, 86, 72, 5A, 85, 59, 73, 26, 27, 70, 2C, 2B, 5B, 7A", ccOut: "5B", deviceJoinName: "WD100+ In-Wall Dimmer"
-    fingerprint type: "1101", mfr: "0184", model: "3034", prod: "4447", cc: "5E, 86, 72, 5A, 85, 59, 73, 26, 27, 70, 2C, 2B, 5B, 7A", ccOut: "5B", deviceJoinName: "WD100+ In-Wall Dimmer"
-    fingerprint type: "1101", mfr: "000C", model: "3034", prod: "4447", cc: "5E, 86, 72, 5A, 85, 59, 73, 26, 27, 70, 2C, 2B, 5B, 7A", ccOut: "5B", deviceJoinName: "HS-WD100+ In-Wall Dimmer"
+    fingerprint type: "1101", mfr: "0184", prod: "4447", model: "3034", deviceJoinName: "WD100+ In-Wall Dimmer"
+    fingerprint type: "1101", mfr: "0184", prod: "4447", model: "3034", cc: "5E, 86, 72, 5A, 85, 59, 73, 26, 27, 70, 2C, 2B, 5B, 7A", ccOut: "5B", deviceJoinName: "WD100+ In-Wall Dimmer"
+    fingerprint type: "1101", mfr: "000C", prod: "4447", model: "3034", cc: "5E, 86, 72, 5A, 85, 59, 73, 26, 27, 70, 2C, 2B, 5B, 7A", ccOut: "5B", deviceJoinName: "HS-WD100+ In-Wall Dimmer"
   }
 
   simulator {
@@ -263,11 +263,16 @@ def buttonEvent(button, held, buttonType) {
 
 def zwaveEvent(physicalgraph.zwave.commands.sceneactuatorconfv1.SceneActuatorConfReport cmd) {
   log.debug "SceneActuatorConfReport $cmd"
-  /*
-  log.debug " sceneId ${cmd.sceneId}"
-  log.debug " dimmingDuration ${cmd.dimmingDuration}"
-  log.debug " level ${cmd.level}"
-   */
+
+  if (cmd.sceneId == 1) {
+    if (cmd.level != 255) {
+      sendCommands([zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true)])
+		}
+	} else if (cmd.sceneId == 2) {
+    if (cmd.level != 0) {
+      sendCommands([zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 5, level: 0, override: true)])
+		}
+	}
 
   createEvent(descriptionText: "$device.displayName ConfigurationReport: $cmd", displayed: true)
 }
@@ -317,7 +322,7 @@ def zwaveEvent(physicalgraph.zwave.commands.configurationv1.ConfigurationReport 
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerSpecificReport cmd) {
-  log.debug("SceneActuatorConfReport: $cmd")
+  log.debug("ManufacturerSpecificReport: $cmd")
 
   if ( cmd.manufacturerId == 0x000C ) {
     updateDataValue("manufacturer", "HomeSeer")
@@ -630,19 +635,19 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationGroupingsRe
 
   if (cmd.supportedGroupings) {
     cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: 0x01, listMode: 0x01)
-      cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x, listMode: 0x01)
+    cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: 0x01)
 
-      cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [0x01])
-      cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [zwaveHubNodeId])
-      cmds << zwave.associationV2.associationGet(groupingIdentifier: 0x01)
+    cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [0x01])
+    cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [zwaveHubNodeId])
+    cmds << zwave.associationV2.associationGet(groupingIdentifier: 0x01)
 
-      if (cmd.supportedGroupings > 1) {
-        for (def x = cmd.supportedGroupings +1; x <= cmd.supportedGroupings; x++) {
-          cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: x, listMode: 0x01)
-            cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x, listMode: 0x01)
-            cmds << zwave.associationV2.associationGet(groupingIdentifier: x)
-        }
+    if (cmd.supportedGroupings > 1) {
+      for (def x = cmd.supportedGroupings +1; x <= cmd.supportedGroupings; x++) {
+        cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: x, listMode: 0x01)
+        cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x)
+        cmds << zwave.associationV2.associationGet(groupingIdentifier: x)
       }
+    }
 
     result << sendCommands(cmds, 1000)
   }
@@ -677,13 +682,14 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
   cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: cmd.groupingIdentifier)
 
   // Lifeline
-  if (cmd.groupingIdentifier == 0x01) {
+  if (cmd.nodeIda && cmd.groupingIdentifier == 0x01) {
     def string_of_assoc = ""
     cmd.nodeId.each {
       string_of_assoc += "${it}, "
     }
-    def lengthMinus2 = string_of_assoc.length() - 3
+    def lengthMinus2 = string_of_assoc.length() - 2
     def final_string = string_of_assoc.getAt(0..lengthMinus2)
+    state.Lifeline = final_string
 
     if (cmd.nodeId.any { it == zwaveHubNodeId }) {
       Boolean isStateChange = state.isAssociated ?: false
@@ -822,7 +828,7 @@ private command(physicalgraph.zwave.Command cmd) {
 }
 
 private commands(sent_commands, delay=200) {
-  sendCommands(sent_commands)
+  sendCommands(sent_commands, delay)
 }
 
 /*****************************************************************************************************************
