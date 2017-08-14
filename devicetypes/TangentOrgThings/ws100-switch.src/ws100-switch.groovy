@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-	return "4.37"
+	return "4.47"
 }
 
 metadata {
@@ -81,10 +81,12 @@ metadata {
 
 	tiles(scale: 2) {
 		multiAttributeTile(name:"switch", type: "lighting", width: 6, height: 4, canChangeIcon: true) {
-			tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {
-				attributeState "on", label: '${name}', action: "switch.off", icon: "st.Home.home30", backgroundColor: "#79b821"
-				attributeState "off", label: '${name}', action: "switch.on", icon: "st.Home.home30", backgroundColor: "#ffffff"
-			}
+	  tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {
+        attributeState "on", label:'${name}', action:"switch.off", icon:"st.Home.home30", backgroundColor:"#79b821", nextState:"turningOff"
+        attributeState "off", label:'${name}', action:"switch.on", icon:"st.Home.home30", backgroundColor:"#ffffff", nextState:"turningOn"
+        attributeState "turningOn", label:'${name}', action:"switch.off", icon:"st.Home.home30", backgroundColor:"#79b821", nextState:"turningOff"
+        attributeState "turningOff", label:'${name}', action:"switch.on", icon:"st.Home.home30", backgroundColor:"#ffffff", nextState:"turningOn"
+      }
 			tileAttribute("device.status", key: "SECONDARY_CONTROL") {
 				attributeState("default", label:'${currentValue}', unit:"")
 			}
@@ -217,27 +219,22 @@ def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
 def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinaryReport cmd) {
 	log.debug "SwitchBinaryReport()"
 
-	def result = []
+  def result = []
 
-	result << createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "digital")
-	result << createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
+  result << createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "digital")
+  result << createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
 
 	return result
 }
 
 def buttonEvent(button, held, buttonType) {
-	def result = []
 	log.debug("buttonEvent: $button  held: $held  type: $buttonType")
 	button = button as Integer
-	result << createEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true, type: "$buttonType")
-	return result
-	/*
 	if (held) {
-	createEvent(name: "button", value: "held", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was held", isStateChange: true, type: "$buttonType")
+		sendEvent(name: "button", value: "held", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true, type: "$buttonType")
 	} else {
-	createEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true, type: "$buttonType")
+		sendEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true, type: "$buttonType")
 	}
-	 */
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.sceneactuatorconfv1.SceneActuatorConfReport cmd) {
@@ -331,20 +328,20 @@ def on() {
 	log.debug "on()"
 	tapUp1Response("digital")
 	setIlluminance(0xFF)
-	return commands([
-		zwave.basicV1.basicSet(value: 0xFF),
-		zwave.switchBinaryV1.switchBinaryGet()
-	])
+  delayBetween([
+    zwave.basicV1.basicSet(value: 0xFF).format(),
+    zwave.switchBinaryV1.switchBinaryGet().format()
+  ])
 }
 
 def off() {
 	log.debug "off()"
 	tapDown1Response("digital")
 	setIlluminance(0x00)
-	return commands([
-		zwave.basicV1.basicSet(value: 0x00),
-		zwave.switchBinaryV1.switchBinaryGet()
-	])
+  delayBetween([
+    zwave.basicV1.basicSet(value: 0x00).format(),
+    zwave.switchBinaryV1.switchBinaryGet().format()
+  ])
 }
 
 def setIlluminance (level) {
@@ -373,17 +370,6 @@ def configure() {
 	}
 }
 
-def poll() {
-	return command(zwave.switchBinaryV1.switchBinaryGet())
-	log.debug "poll() called"
-	sendCommands([
-		wave.switchBinaryV1.switchBinaryGet(),
-		zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1),
-		zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2),
-		zwave.associationV2.associationGet(groupingIdentifier: 0x01),
-	])
-}
-
 /**
  * PING is used by Device-Watch in attempt to reach the Device
  * */
@@ -392,12 +378,20 @@ def ping() {
 }
 
 def refresh() {
-	log.debug "refresh() called"
-	sendCommands([
-		wave.switchBinaryV1.switchBinaryGet(),
-		zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1),
-		zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2),
-		zwave.associationV2.associationGet(groupingIdentifier: 0x01),
+  log.debug "refresh() called"
+  delayBetween([
+    zwave.switchBinaryV1.switchBinaryGet().format(),
+    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1).format(),
+    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2).format(),
+    zwave.associationV2.associationGet(groupingIdentifier: 1).format(),
+    zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
+  ])
+}
+
+def poll() {
+	delayBetween([
+		zwave.switchBinaryV1.switchBinaryGet().format(),
+		zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
 	])
 }
 
