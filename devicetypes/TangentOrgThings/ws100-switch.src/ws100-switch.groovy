@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-  return "4.57"
+  return "4.88"
 }
 
 metadata {
@@ -37,7 +37,7 @@ metadata {
     capability "Actuator"
     capability "Configuration"
     capability "Health Check"
-    capability "Holdable Button"
+    capability "Button"
     capability "Illuminance Measurement"
     capability "Indicator"
     capability "Light"
@@ -54,6 +54,8 @@ metadata {
     command "holdDown"
 
     attribute "Lifeline", "string"
+    attribute "configured", "enum", ["false", "true"]
+    attribute "reset", "enum", ["false", "true"]
     attribute "driverVersion", "string"
     attribute "FirmwareMdReport", "string"
     attribute "Manufacturer", "string"
@@ -147,9 +149,14 @@ metadata {
         [value: 1000, color: "#fbd41b"]
       ])
     }
+    
+    standardTile("reset", "device.reset", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+      state "false", label:'', backgroundColor:"#ffffff"
+      state "true", label:'reset', backgroundColor:"#e51426"
+    }
 
     main "switch"
-    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "indicator", "firmwareVersion", "driverVersion", "refresh", "configure", "illuminance"])
+    details(["switch", "tapUp2", "tapUp3", "holdUp", "tapDown2", "tapDown3", "holdDown", "indicator", "firmwareVersion", "driverVersion", "refresh", "configure", "illuminance", "reset"])
   }
 }
 
@@ -423,7 +430,7 @@ def invertSwitch(invert=true) {
 
 def zwaveEvent(physicalgraph.zwave.commands.deviceresetlocallyv1.DeviceResetLocallyNotification cmd) {
   state.reset = true
-  [createEvent(descriptionText: cmd.toString(), isStateChange: true, displayed: true)]
+  [createEvent(name: "reset", value: state.reset, descriptionText: cmd.toString(), isStateChange: true, displayed: true)]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.zwavecmdclassv1.NodeInfo cmd) {
@@ -594,22 +601,25 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationGroupingsRe
 
     sendCommands(cmds, 1000)
   } else {
-    [createEvent(descriptionText: "$device.displayName reported no groups", isStateChange: true, displayed: true)]
+    [ createEvent(descriptionText: "$device.displayName reported no groups", isStateChange: true, displayed: true) ]
   }
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationgrpinfov1.AssociationGroupInfoReport cmd) {
   log.debug ("AssociationGroupInfoReport() $cmd")
-  [createEvent(descriptionText: "$device.displayName AssociationGroupInfoReport: $cmd", isStateChange: true, displayed: true)]
+  [ createEvent(descriptionText: "$device.displayName AssociationGroupInfoReport: $cmd", isStateChange: true, displayed: true) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationgrpinfov1.AssociationGroupNameReport cmd) {
   log.debug "AssociationGroupNameReport() $cmd"
-  [createEvent(descriptionText: "$device.displayName AssociationGroupNameReport: $cmd", displayed: true)]
+  [ createEvent(descriptionText: "$device.displayName AssociationGroupNameReport: $cmd", displayed: true) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd) {
   log.debug "$device.displayName AssociationReport()"
+  Boolean isStateChange
+  String event_value
+  String event_descriptionText
 
   // Lifeline
   if (cmd.groupingIdentifier == 0x01) {
@@ -621,36 +631,37 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
     def final_string = string_of_assoc.getAt(0..lengthMinus2)
 
     if (cmd.nodeId.any { it == zwaveHubNodeId }) {
-      Boolean isStateChange = state.isAssociated ?: false
-      sendEvent(name: "Lifeline",
-          value: "${final_string}",
-          descriptionText: "${final_string}",
-          displayed: true,
-          isStateChange: isStateChange)
-
+      isStateChange = state.isAssociated ?: false
+      value = "${final_string}"
+      event_descriptionText = "${final_string}"
       state.isAssociated = true
     } else {
-      Boolean isStateChange = state.isAssociated ? true : false
-      sendEvent(name: "Lifeline",
-          value: "",
-          descriptionText: "${final_string}",
-          displayed: true,
-          isStateChange: isStateChange)
+      isStateChange = state.isAssociated ? true : false
+      value = ""
+      event_descriptionText = "Hub was not found in lifeline: ${final_string}"
       state.isAssociated = false
     }
   } else {
-    Boolean isStateChange = state.isAssociated ? true : false
-    sendEvent(name: "Lifeline",
-        value: "misconfigured",
-        descriptionText: "misconfigured group ${cmd.groupingIdentifier}",
-        displayed: true,
-        isStateChange: isStateChange)
+    isStateChange = state.isAssociated ? true : false
+    value = "misconfigured"
+    event_descriptionText = "misconfigured group ${cmd.groupingIdentifier}"
   }
 
-  if (state.isAssociated == false) {
-    sendCommands([zwave.associationV2.associationSet(groupingIdentifier: cmd.groupingIdentifier, nodeId: [zwaveHubNodeId])])
+  if (state.isAssociated == false && cmd.groupingIdentifier == 0x01) {
+    sendEvent(name: "Lifeline",
+      value: "${event_value}",
+      descriptionText: "${event_descriptionText}",
+      displayed: true,
+      isStateChange: isStateChange)
+    sendCommands( [ zwave.associationV2.associationSet(groupingIdentifier: cmd.groupingIdentifier, nodeId: [zwaveHubNodeId]) ] )
+  } else if (state.isAssociated == true && cmd.groupingIdentifier == 0x01) {
+    [ createEvent(name: "Lifeline",
+      value: "${event_value}",
+      descriptionText: "${event_descriptionText}",
+      displayed: true,
+      isStateChange: isStateChange) ]
   } else {
-    [createEvent(descriptionText: "$device.displayName is not associated", displayed: true)]
+    [ createEvent(descriptionText: "$device.displayName is not associated to ${cmd.groupingIdentifier}", displayed: true) ]
   }
 }
 
@@ -689,7 +700,7 @@ def installed() {
     sendHubCommand(hubCmd, 1000)
   };
 
-  configure()
+  sendCommands( prepDevice() )
 }
 
 def updated() {
@@ -707,25 +718,7 @@ def updated() {
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
   state.driverVersion = getDriverVersion()
 
-  def cmds = prepDevice()
-  cmds.each
-  { zwaveCmd ->
-    def hubCmd = []
-    hubCmd << response(zwaveCmd)
-    sendHubCommand(hubCmd, 1000)
-  };
-}
-
-private command(physicalgraph.zwave.Command cmd) {
-  if (state.sec) {
-    zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd).format()
-  } else {
-    cmd.format()
-  }
-}
-
-private commands(sent_commands, delay=200) {
-  sendCommands(sent_commands, delay)
+  sendCommands( prepDevice() )
 }
 
 /*****************************************************************************************************************
