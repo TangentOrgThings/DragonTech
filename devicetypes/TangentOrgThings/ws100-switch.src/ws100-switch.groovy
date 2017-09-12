@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-  return "4.88"
+  return "5.11"
 }
 
 metadata {
@@ -136,10 +136,6 @@ metadata {
 
     standardTile("configure", "device.switch", width: 2, height: 2, inactiveLabel: false, decoration: "flat") {
       state "default", label:'', action:"configuration.configure", icon:"st.secondary.configure"
-    }
-
-    valueTile("driverVersion", "device.driverVersion", width:2, height:2, inactiveLabel: true, decoration: "flat") {
-      state "default", label: '${currentValue}'
     }
 
     valueTile("illuminance", "device.illuminance", width: 2, height: 2) {
@@ -329,8 +325,8 @@ def zwaveEvent(physicalgraph.zwave.commands.hailv1.Hail cmd) {
 
 def on() {
   log.debug "on()"
-  sendEvent(buttonEvent(7, false, "digital"))
   setIlluminance(0xFF)
+  state.lastActive = new Date().time
   delayBetween([
     zwave.basicV1.basicSet(value: 0xFF).format(),
     zwave.switchBinaryV1.switchBinaryGet().format()
@@ -339,7 +335,6 @@ def on() {
 
 def off() {
   log.debug "off()"
-  sendEvent(buttonEvent(8, false, "digital"))
   setIlluminance(0x00)
   delayBetween([
     zwave.basicV1.basicSet(value: 0x00).format(),
@@ -447,19 +442,19 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
     // Up
     switch (cmd.keyAttributes) {
       case 1:
-      result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
+      // result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
       case 0:
       result << buttonEvent(7, false, "physical")
       setIlluminance(0xFF)
-      sendEvent(name: "switch", value: "on", type: "physical")
+      // sendEvent(name: "switch", value: "on", type: "physical")
       break
       break
       case 2:
       // Hold
       result << buttonEvent(1, true, "physical")
       setIlluminance(0xFF)
-      sendEvent(name: "switch", value: "on", type: "physical")
-      result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
+      // sendEvent(name: "switch", value: "on", type: "physical")
+      // result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
       break
       case 3:
       // 2 Times
@@ -478,18 +473,18 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
     // Down
     switch (cmd.keyAttributes) {
       case 1:
-      result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
+      // result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
       case 0:
       result << buttonEvent(8, false, "physical")
       setIlluminance(0x00)
-      sendEvent(name: "switch", value: "off", type: "physical")
+      // sendEvent(name: "switch", value: "off", type: "physical")
       break
       case 2:
       // Hold
       result << buttonEvent(4, false, "physical")
       setIlluminance(0x00)
-      sendEvent(name: "switch", value: "off", type: "physical")
-      result +=  sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
+      // sendEvent(name: "switch", value: "off", type: "physical")
+      // result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
       break
       case 3:
       // 2 Times
@@ -690,15 +685,6 @@ def installed() {
   sendEvent(name: "checkInterval", value: 86220, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
 
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
-  state.driverVersion = getDriverVersion()
-
-  def cmds = prepDevice()
-  cmds.each
-  { zwaveCmd ->
-    def hubCmd = []
-    hubCmd << response(zwaveCmd)
-    sendHubCommand(hubCmd, 1000)
-  };
 
   sendCommands( prepDevice() )
 }
@@ -716,7 +702,6 @@ def updated() {
   sendEvent(name: "numberOfButtons", value: 8, displayed: false)
 
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
-  state.driverVersion = getDriverVersion()
 
   sendCommands( prepDevice() )
 }
