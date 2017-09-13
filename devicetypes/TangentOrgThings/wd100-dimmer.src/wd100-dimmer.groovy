@@ -443,9 +443,6 @@ def ping() {
 def refresh() {
   delayBetween([
     zwave.switchMultilevelV1.switchMultilevelGet().format(),
-    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1).format(),
-    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2).format(),
-    zwave.associationV2.associationGet(groupingIdentifier: 1).format(),
     zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
   ])
 }
@@ -649,22 +646,22 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
       string_of_assoc += "${it}, "
     }
     def lengthMinus2 = string_of_assoc.length() - 2
-    def final_string = string_of_assoc.getAt(0..lengthMinus2)
+    String final_string = string_of_assoc.getAt(0..lengthMinus2)
 
     if (cmd.nodeId.any { it == zwaveHubNodeId }) {
       isStateChange = state.isAssociated ?: false
-      value = "${final_string}"
+      event_value = "${final_string}"
       event_descriptionText = "${final_string}"
       state.isAssociated = true
     } else {
       isStateChange = state.isAssociated ? true : false
-      value = ""
+      event_value = ""
       event_descriptionText = "Hub was not found in lifeline: ${final_string}"
       state.isAssociated = false
     }
   } else {
     isStateChange = state.isAssociated ? true : false
-    value = "misconfigured"
+    event_value = "misconfigured"
     event_descriptionText = "misconfigured group ${cmd.groupingIdentifier}"
   }
 
