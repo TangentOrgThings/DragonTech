@@ -36,7 +36,7 @@
 
 
 def getDriverVersion() {
-  return "5.32"
+  return "5.42"
 }
 
 metadata {
@@ -60,6 +60,7 @@ metadata {
     command "holdUp"
     command "holdDown"
 
+    attribute "reset", "enum", ["false", "true"]
     attribute "Lifeline", "string"
     attribute "driverVersion", "number"
     attribute "FirmwareMdReport", "string"
@@ -367,6 +368,7 @@ def zwaveEvent(physicalgraph.zwave.commands.switchmultilevelv3.SwitchMultilevelS
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
+  log.error("$device.displayName command not implemented: $cmd")
   [createEvent(descriptionText: "$device.displayName command not implemented: $cmd", displayed: true)]
 }
 
@@ -453,7 +455,7 @@ def poll() {
 
 def zwaveEvent(physicalgraph.zwave.commands.deviceresetlocallyv1.DeviceResetLocallyNotification cmd) {
   state.reset = true
-  [ createEvent(descriptionText: cmd.toString(), isStateChange: true, displayed: true) ]
+  [createEvent(name: "reset", value: state.reset, descriptionText: cmd.toString(), isStateChange: true, displayed: true)]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotification cmd) {
@@ -715,7 +717,7 @@ def installed() {
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
   state.driverVersion = getDriverVersion()
 
-  sendCommands( prepDevice() + setDimRatePrefs() )
+  sendCommands( prepDevice() + setDimRatePrefs(), 2000 )
 }
 
 def setDimRatePrefs() {
@@ -767,19 +769,7 @@ def updated() {
   // Device-Watch simply pings if no device events received for 86220 (one day minus 3 minutes)
   sendEvent(name: "checkInterval", value: 86220, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
 
-  sendCommands( prepDevice() + configure() )
-}
-
-private command(physicalgraph.zwave.Command cmd) {
-  if (state.sec) {
-    zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd).format()
-  } else {
-    cmd.format()
-  }
-}
-
-private commands(sent_commands, delay=200) {
-  sendCommands(sent_commands, delay)
+  sendCommands( prepDevice() + configure(), 2000 )
 }
 
 /*****************************************************************************************************************
@@ -808,7 +798,7 @@ private encapCommand(physicalgraph.zwave.Command cmd) {
  *  Converts a list of commands (and delays) into a HubMultiAction object, suitable for returning via parse().
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
-private prepCommands(cmds, delay=200) {
+private prepCommands(cmds, delay) {
   return response(delayBetween(cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? encapCommand(it).format() : it }, delay))
 }
 
@@ -818,6 +808,6 @@ private prepCommands(cmds, delay=200) {
  *  Sends a list of commands directly to the device using sendHubCommand.
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
-private sendCommands(cmds, delay=200) {
+private sendCommands(cmds, delay=1000) {
   sendHubCommand( cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? response(encapCommand(it)) : response(it) }, delay)
 }

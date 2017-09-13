@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-  return "5.11"
+  return "5.21"
 }
 
 metadata {
@@ -686,7 +686,7 @@ def installed() {
 
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
 
-  sendCommands( prepDevice() )
+  sendCommands( prepDevice(), 2000 )
 }
 
 def updated() {
@@ -703,7 +703,7 @@ def updated() {
 
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
 
-  sendCommands( prepDevice() )
+  sendCommands( prepDevice(), 2000 )
 }
 
 /*****************************************************************************************************************
@@ -734,7 +734,7 @@ private encapCommand(physicalgraph.zwave.Command cmd) {
  *  Converts a list of commands (and delays) into a HubMultiAction object, suitable for returning via parse().
  *  Uses encapCommand() to apply security or CRC16 encapsulation as needed.
  **/
-private prepCommands(cmds, delay=200) {
+private prepCommands(cmds, delay) {
   return response(delayBetween(cmds.collect{ (it instanceof physicalgraph.zwave.Command ) ? encapCommand(it).format() : it }, delay))
 }
 
