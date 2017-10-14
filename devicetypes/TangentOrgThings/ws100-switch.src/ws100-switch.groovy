@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-  return "5.21"
+  return "v5.62"
 }
 
 metadata {
@@ -57,10 +57,12 @@ metadata {
     attribute "configured", "enum", ["false", "true"]
     attribute "reset", "enum", ["false", "true"]
     attribute "driverVersion", "string"
+    attribute "firmwareVersion", "string"
     attribute "FirmwareMdReport", "string"
     attribute "Manufacturer", "string"
     attribute "ManufacturerCode", "string"
     attribute "MSR", "string"
+    attribute "NIF", "string"
     attribute "ProduceTypeCode", "string"
     attribute "ProductCode", "string"
     attribute "WakeUp", "string"
@@ -79,6 +81,10 @@ metadata {
     // reply messages
     reply "2001FF,delay 100,2502": "command: 2503, payload: FF"
     reply "200100,delay 100,2502": "command: 2503, payload: 00"
+  }
+  
+  preferences {
+    input "ledIndicator", "enum", title: "LED Indicator", description: "Turn LED indicator... ", required: false, options:["on": "When On", "off": "When Off", "never": "Never"], defaultValue: "off"
   }
 
   tiles(scale: 2) {
@@ -199,34 +205,24 @@ def parse(String description) {
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd) {
-  log.debug "BasicReport()"
-  def result = []
+  log.debug "$cmd"
 
-  result << createEvent(name: "switch", value: cmd.value ? "on" : "off", type:"physical")
-  result << createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
-
-  return result
+  setIlluminance(cmd.value ? 300 : 8)
+  [ createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "physical") ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
-  log.debug "BasicSet()"
-  def result = []
+  log.debug "$cmd"
 
-  result << createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "physical")
-  result << createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
-
-  return result
+  setIlluminance(cmd.value ? 300 : 8)
+  [ createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "physical") ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinaryReport cmd) {
-  log.debug "SwitchBinaryReport()"
+  log.debug "$cmd"
 
-  def result = []
-
-  result << createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "digital")
-  result << createEvent(name: "illuminance", value: cmd.value ? 300 : 8, unit: "lux")
-
-  return result
+  setIlluminance(cmd.value ? 300 : 8)
+  [ createEvent(name: "switch", value: cmd.value ? "on" : "off", type: "digital") ]
 }
 
 def buttonEvent(button, held, buttonType) {
@@ -256,7 +252,7 @@ def zwaveEvent(physicalgraph.zwave.commands.sceneactuatorconfv1.SceneActuatorCon
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.sceneactivationv1.SceneActivationSet cmd) {
-  log.debug("SceneActivationSet: $cmd")
+  log.debug("$cmd")
   Integer button = ((cmd.sceneId + 1) / 2) as Integer
   Boolean held = !(cmd.sceneId % 2)
   buttonEvent(button, held, "digital")
@@ -284,6 +280,9 @@ def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerS
     updateDataValue("manufacturer", "Unknown Licensed Dragon Tech Industrial, Ltd.")
   }
   state.manufacturer= cmd.manufacturerName
+  state.manufacturerId = cmd.manufacturerId
+  state.productTypeId = cmd.productTypeId
+  state.productId= cmd.productId
 
   def manufacturerCode = String.format("%04X", cmd.manufacturerId)
   def productTypeCode = String.format("%04X", cmd.productTypeId)
@@ -302,20 +301,32 @@ def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerS
   [createEvent(name: "Manufacturer", value: "${cmd.manufacturerName}", descriptionText: "$device.displayName", isStateChange: false)]
 }
 
+def zwaveEvent(physicalgraph.zwave.commands.crc16encapv1.Crc16Encap cmd) {
+  log.debug("$cmd")
+
+	def versions = commandClassVersions
+	def version = versions[cmd.commandClass as Integer]
+	def ccObj = version ? zwave.commandClass(cmd.commandClass, version) : zwave.commandClass(cmd.commandClass)
+	def encapsulatedCommand = ccObj?.command(cmd.command)?.parse(cmd.data)
+	if (encapsulatedCommand) {
+		zwaveEvent(encapsulatedCommand)
+	}
+}
+
 def zwaveEvent(physicalgraph.zwave.commands.versionv1.VersionReport cmd) {
   def text = "$device.displayName: firmware version: ${cmd.applicationVersion}.${cmd.applicationSubVersion}, Z-Wave version: ${cmd.zWaveProtocolVersion}.${cmd.zWaveProtocolSubVersion}"
   state.firmwareVersion = cmd.applicationVersion+'.'+cmd.applicationSubVersion
-  [createEvent(name: "firmwareVersion", value: "V ${state.firmwareVersion}", descriptionText: "$text", isStateChange: false)]
+  [ createEvent(name: "firmwareVersion", value: "V ${state.firmwareVersion}", descriptionText: "$text", isStateChange: true) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.firmwareupdatemdv2.FirmwareMdReport cmd) {
   def firmware_report = String.format("%s-%s-%s", cmd.checksum, cmd.firmwareId, cmd.manufacturerId)
   updateDataValue("FirmwareMdReport", firmware_report)
-  [createEvent(name: "FirmwareMdReport", value: firmware_report, descriptionText: "$device.displayName FIRMWARE_REPORT: $firmware_report", isStateChange: false)]
+  [createEvent(name: "FirmwareMdReport", value: firmware_report, descriptionText: "$device.displayName FIRMWARE_REPORT: $firmware_report", isStateChange: true)]
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
-  log.debug "ERROR: $cmd"
+  log.error "ERROR: $cmd"
   [createEvent(descriptionText: "$device.displayName command not implemented: $cmd", displayed: true)]
 }
 
@@ -372,7 +383,7 @@ def configure() {
  * PING is used by Device-Watch in attempt to reach the Device
  * */
 def ping() {
-  refresh()
+  zwave.switchBinaryV1.switchBinaryGet().format()
 }
 
 def refresh() {
@@ -381,7 +392,6 @@ def refresh() {
     zwave.switchBinaryV1.switchBinaryGet().format(),
     zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1).format(),
     zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2).format(),
-    zwave.associationV2.associationGet(groupingIdentifier: 1).format(),
     zwave.manufacturerSpecificV1.manufacturerSpecificGet().format()
   ])
 }
@@ -395,45 +405,47 @@ def poll() {
 
 void indicatorWhenOn() {
   sendEvent(name: "indicatorStatus", value: "when on", displayed: false)
-  sendHubCommand(new physicalgraph.device.HubAction(zwave.configurationV1.configurationSet(configurationValue: [1], parameterNumber: 3, size: 1).format()))
+  sendHubCommand(new physicalgraph.device.HubAction(zwave.configurationV1.configurationSet(scaledConfigurationValue: 1, parameterNumber: 3, size: 1).format()))
 }
 
 void indicatorWhenOff() {
   sendEvent(name: "indicatorStatus", value: "when off", displayed: false)
-  sendHubCommand(new physicalgraph.device.HubAction(zwave.configurationV1.configurationSet(configurationValue: [0], parameterNumber: 3, size: 1).format()))
+  sendHubCommand(new physicalgraph.device.HubAction(zwave.configurationV1.configurationSet(scaledConfigurationValue: 0, parameterNumber: 3, size: 1).format()))
 }
 
 void indicatorNever() {
   sendEvent(name: "indicatorStatus", value: "never", displayed: false)
-  sendHubCommand(new physicalgraph.device.HubAction(zwave.configurationV1.configurationSet(configurationValue: [2], parameterNumber: 3, size: 1).format()))
+  sendHubCommand(new physicalgraph.device.HubAction(zwave.configurationV1.configurationSet(scaledConfigurationValue: 2, parameterNumber: 3, size: 1).format()))
 }
 
 def invertSwitch(invert=true) {
   if (invert) {
     sendCommands([
-      zwave.configurationV1.configurationSet(configurationValue: [1], parameterNumber: 4, size: 1),
+      zwave.configurationV1.configurationSet(scaledConfigurationValue: 1, parameterNumber: 4, size: 1),
       zwave.configurationV1.configurationGet(parameterNumber: 4)
     ])
   }
   else {
     sendCommands([
-      zwave.configurationV1.configurationSet(configurationValue: [0], parameterNumber: 4, size: 1),
+      zwave.configurationV1.configurationSet(scaledConfigurationValue: 0, parameterNumber: 4, size: 1),
       zwave.configurationV1.configurationGet(parameterNumber: 4)
     ])
   }
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.deviceresetlocallyv1.DeviceResetLocallyNotification cmd) {
+  log.debug("$cmd")
   state.reset = true
   [createEvent(name: "reset", value: state.reset, descriptionText: cmd.toString(), isStateChange: true, displayed: true)]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.zwavecmdclassv1.NodeInfo cmd) {
   log.debug("NodeInfo: $cmd")
-  [createEvent(name: "NIF", value: "$cmd", descriptionText: "$cmd")]
+  [ createEvent(name: "NIF", value: "$cmd", descriptionText: "$cmd", isStateChange: true, displayed: true) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotification cmd) {
+  log.debug("$cmd")
   log.debug("sceneNumber: ${cmd.sceneNumber} keyAttributes: ${cmd.keyAttributes}")
   def result = []
 
@@ -446,13 +458,13 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
       case 0:
       result << buttonEvent(7, false, "physical")
       setIlluminance(0xFF)
-      // sendEvent(name: "switch", value: "on", type: "physical")
+      sendEvent(name: "switch", value: "on", type: "physical")
       break
       break
       case 2:
       // Hold
       result << buttonEvent(1, true, "physical")
-      setIlluminance(0xFF)
+      // setIlluminance(0xFF)
       // sendEvent(name: "switch", value: "on", type: "physical")
       // result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
       break
@@ -465,7 +477,7 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
       result << buttonEvent(3, false, "physical")
       break
       default:
-      log.debug ("unexpected up press keyAttribute: $cmd")
+      log.error ("unexpected up press keyAttribute: $cmd")
     }
     break
 
@@ -477,12 +489,12 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
       case 0:
       result << buttonEvent(8, false, "physical")
       setIlluminance(0x00)
-      // sendEvent(name: "switch", value: "off", type: "physical")
+      sendEvent(name: "switch", value: "off", type: "physical")
       break
       case 2:
       // Hold
       result << buttonEvent(4, false, "physical")
-      setIlluminance(0x00)
+      // setIlluminance(0x00)
       // sendEvent(name: "switch", value: "off", type: "physical")
       // result += sendHubCommand(new physicalgraph.device.HubAction(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format()))
       break
@@ -578,40 +590,30 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationGroupingsRe
 
   if (cmd.supportedGroupings) {
     def cmds = []
-
-    cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: 0x01, listMode: 0x01)
-    cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: 0x01)
-
-    cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [0x01])
-    cmds << zwave.associationV2.associationSet(groupingIdentifier: 0x01, nodeId: [zwaveHubNodeId])
-    cmds << zwave.associationV2.associationGet(groupingIdentifier: 0x01)
-
-    if (cmd.supportedGroupings > 1) {
-      for (def x = cmd.supportedGroupings +1; x <= cmd.supportedGroupings; x++) {
-        cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: x, listMode: 0x01);
-        cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x);
-        cmds << zwave.associationV2.associationGet(groupingIdentifier: x);
-      }
+    for (def x = cmd.supportedGroupings; x <= cmd.supportedGroupings; x++) {
+      cmds << zwave.associationGrpInfoV1.associationGroupInfoGet(groupingIdentifier: x, listMode: 0x01);
+      cmds << zwave.associationGrpInfoV1.associationGroupNameGet(groupingIdentifier: x);
+      cmds << zwave.associationV2.associationGet(groupingIdentifier: x);
     }
 
-    sendCommands(cmds, 1000)
+    sendCommands(cmds, 2000)
   } else {
     [ createEvent(descriptionText: "$device.displayName reported no groups", isStateChange: true, displayed: true) ]
   }
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationgrpinfov1.AssociationGroupInfoReport cmd) {
-  log.debug ("AssociationGroupInfoReport() $cmd")
+  log.debug ("$cmd")
   [ createEvent(descriptionText: "$device.displayName AssociationGroupInfoReport: $cmd", isStateChange: true, displayed: true) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationgrpinfov1.AssociationGroupNameReport cmd) {
-  log.debug "AssociationGroupNameReport() $cmd"
+  log.debug "$cmd"
   [ createEvent(descriptionText: "$device.displayName AssociationGroupNameReport: $cmd", displayed: true) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd) {
-  log.debug "$device.displayName AssociationReport()"
+  log.debug "$device.displayName $cmd"
   Boolean isStateChange
   String event_value
   String event_descriptionText
@@ -669,8 +671,9 @@ def prepDevice() {
     zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 1),
     zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 2),
     zwave.manufacturerSpecificV2.manufacturerSpecificGet(),
+    zwave.versionV1.versionGet(),
     zwave.firmwareUpdateMdV1.firmwareMdGet(),
-    zwave.associationV2.associationGet(groupingIdentifier: 0x01),
+    //zwave.associationV2.associationGet(groupingIdentifier: 0x01),
     zwave.associationV2.associationGroupingsGet(),
     zwave.switchBinaryV1.switchBinaryGet(),
     zwave.zwaveCmdClassV1.requestNodeInfo(),
@@ -681,8 +684,8 @@ def installed() {
   log.debug ("installed()")
   sendEvent(name: "numberOfButtons", value: 8, displayed: false)
 
-  // Device-Watch simply pings if no device events received for 86220 (one day minus 3 minutes)
-  sendEvent(name: "checkInterval", value: 86220, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
+  // Device-Watch simply pings if no device events received for 32min(checkInterval)
+  sendEvent(name: "checkInterval", value: 2 * 15 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
 
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
 
@@ -692,8 +695,8 @@ def installed() {
 def updated() {
   log.debug "updated()"
 
-  // Device-Watch simply pings if no device events received for 86220 (one day minus 3 minutes)
-  sendEvent(name: "checkInterval", value: 86220, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
+  // Device-Watch simply pings if no device events received for 32min(checkInterval)
+  sendEvent(name: "checkInterval", value: 2 * 15 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
 
   // Check in case the device has been changed
   state.manufacturer = null
