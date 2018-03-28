@@ -676,31 +676,32 @@ def zwaveEvent(physicalgraph.zwave.commands.associationv2.AssociationReport cmd)
     [ createEvent(descriptionText: "$device.displayName is not associated to ${cmd.groupingIdentifier}", displayed: true) ]
   }
 }
+
 def zwaveEvent(physicalgraph.zwave.commands.switchallv1.SwitchAllReport cmd) {
-    logger("$device.displayName $cmd")
+  logger("$device.displayName $cmd")
 
-    state.switchAllModeCache = cmd.mode
+  state.switchAllModeCache = cmd.mode
 
-    def msg = ""
-    switch (cmd.mode) {
-            case 0:
-                msg = "Device is excluded from the all on/all off functionality."
-                break
+  def msg = ""
+  switch (cmd.mode) {
+    case 0:
+    msg = "Device is excluded from the all on/all off functionality."
+    break
 
-            case 1:
-                msg = "Device is excluded from the all on functionality but not all off."
-                break
+    case 1:
+    msg = "Device is excluded from the all on functionality but not all off."
+    break
 
-            case 2:
-                msg = "Device is excluded from the all off functionality but not all on."
-                break
+    case 2:
+    msg = "Device is excluded from the all off functionality but not all on."
+    break
 
-            default:
-                msg = "Device is included in the all on/all off functionality."
-                break
-    }
-    logger("Switch All Mode: ${msg}","info")
-  
+    default:
+    msg = "Device is included in the all on/all off functionality."
+    break
+  }
+  logger("Switch All Mode: ${msg}","info")
+
   if (cmd.mode != 0) {
     sendCommands([
       zwave.switchAllV1.switchAllSet(mode: 0x00),
