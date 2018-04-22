@@ -29,7 +29,7 @@
  */
 
 def getDriverVersion () {
-  return "v5.95"
+  return "v6.23"
 }
 
 metadata {
@@ -69,7 +69,9 @@ metadata {
 
     attribute "Scene", "number"
     attribute "Scene_1", "number"
+    attribute "Scene_1_Duration", "number"
     attribute "Scene_2", "number"
+    attribute "Scene_2_Duration", "number"
     
     attribute "SwitchAll", "string"
 
@@ -166,19 +168,18 @@ def parse(String description) {
 
   //log.debug "PARSE: ${description}"
   if (description.startsWith("Err")) {
-    createEvent(name: "lastError", value: description, descriptionText: description, isStateChange: true)
+    log.error "parse error: ${description}"
+    result = []
+    result << createEvent(name: "lastError", value: "Error parse() ${description}", descriptionText: description)
+    
     if (description.startsWith("Err 106")) {
-      if (state.sec) {
-        logger("SECURED: $description", "error")
-      } else {
-        result = createEvent(
-          descriptionText: "This device failed to complete the network security key exchange. If you are unable to control it via SmartThings, you must remove it from your network and add it again.",
+      result << createEvent(
+          descriptionText: "Security, possible key exchange error.",
           eventType: "ALERT",
           name: "secureInclusion",
           value: "failed",
           isStateChange: true,
         )
-      }
     }
   } else if (description != "updated") {
     def cmd = zwave.parse(description, getCommandClassVersions())
@@ -186,50 +187,55 @@ def parse(String description) {
     if (cmd) {
       result = zwaveEvent(cmd)
 
-      if (!result) {
-        log.warning "Parse Failed and returned ${result} for command ${cmd}"
-        result = createEvent(value: description, descriptionText: description, displayed: true)
+      if (! result) {
+        log.warning "zwaveEvent() failed to return a value for command ${cmd}"
+        result = createEvent(name: "lastError", value: "$cmd", descriptionText: description)
       } else {
         // If we displayed the result
         // log.debug "zwave.parse() debug: ${description}"
         // logger("Parsed $result")
       }
     } else {
-      log.error "zwave.parse() failed: ${description}"
-      result = createEvent(value: description, descriptionText: description, displayed: true)
+      log.warning "zwave.parse() failed for: ${description}"
+      result = createEvent(name: "lastError", value: "zwave.parse() failed for: ${description}", descriptionText: description)
     }
+  } else {
+    result = createEvent(name: "logMessage", value: "DESC: ${description}", descriptionText: description)
   }
 
   return result
 }
 
-private switchEvents(physicalgraph.zwave.Command cmd, boolean isPhysical = true) {
-  if (cmd.value == 254) {
+private switchEvents(Short value, boolean isPhysical = true) {
+  if (value == 254) {
     logger("$device.displayName returned Unknown for status.", "warn")
     return createEvent(descriptionText: "$device.displayName returned Unknown for status.", displayed: true)
   }
   
-  return [ createEvent(name: "switch", value: cmd.value ? "on" : "off", type: isPhysical ? "physical" : "digital", isStateChange: true, displayed: true) ]
+  return [ createEvent(name: "switch", value: value ? "on" : "off", type: isPhysical ? "physical" : "digital") ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd) {
-  logger("$device.displayName $cmd")
-  return switchEvents(cmd, true);
+  log.debug("$device.displayName $cmd (duplicate)")
+  if (0) {
+    return switchEvents(cmd.value, true);
+  }
+  [ createEvent(descriptionText: "$device.displayName basic duplicate.", isStateChange: false, displayed: false) ]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
-  logger("$device.displayName $cmd")
-  return switchEvents(cmd, true);
-}
-
-def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinaryGet cmd) {
-  log.debug("$device.displayName $cmd")
-  return [ createEvent(name: "switch", value: cmd.switchValue ? "on" : "off", type: "physical") ]
+  log.debug("$device.displayName $cmd -- BEING CONTROLLED")
+  return switchEvents(cmd.value, true);
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinaryReport cmd) {
   log.debug("$device.displayName $cmd")
-  return switchEvents(cmd, false);
+  return switchEvents(cmd.value, false);
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinarySet cmd) {
+  log.debug("$device.displayName $cmd -- BEING CONTROLLED")
+  return switchEvents(cmd.switchValue, false)
 }
 
 def buttonEvent(button, held, buttonType = "physical") {
@@ -254,39 +260,41 @@ def zwaveEvent(physicalgraph.zwave.commands.sceneactuatorconfv1.SceneActuatorCon
   
   // HomeSeer (ST?) does not implement this scene
   if (cmd.sceneId == 0) {
-    return [ 
-      createEvent(name: "level", value: cmd.level, isStateChange: true, displayed: true),
-      createEvent(name: "switch", value: cmd.level == 0 ? "on" : "off", isStateChange: true, displayed: true),
+    return [
+      createEvent(name: "Scene", value: cmd.sceneId, isStateChange: true, displayed: true),
+      createEvent(name: "switch", value: cmd.level == 0 ? "off" : "on", isStateChange: true, displayed: true),
     ]
   }
 
+  def cmds = []
   if (cmd.sceneId == 1) {
     if (cmd.level != 255) {
-      sendCommands([
-        zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: cmd.sceneId, dimmingDuration: 0, level: 255, override: true),
-      ])
+      cmds << zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: cmd.sceneId, dimmingDuration: 0, level: 255, override: true).format()
     }
   } else if (cmd.sceneId == 2) {
     if (cmd.level) {
-      sendCommands([
-        zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: cmd.sceneId, dimmingDuration: 0, level: 0, override: true),
-      ])
+      cmds << zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: cmd.sceneId, dimmingDuration: 0, level: 0, override: true).format()
     }
   }
 
   String scene_name = "Scene_$cmd.sceneId"
+  String scene_duration_name = String.format("Scene_%d_Duration", cmd.sceneId)
   
   [ createEvent(name: "$scene_name", value: cmd.level, isStateChange: true, displayed: true),
+    createEvent(name: "$scene_duration_name", value: cmd.dimmingDuration, isStateChange: true, displayed: true),
     createEvent(name: "Scene", value: cmd.sceneId, isStateChange: true, displayed: true),
+    response(cmds),
   ]
 }
 
+/*
 def zwaveEvent(physicalgraph.zwave.commands.sceneactivationv1.SceneActivationSet cmd) {
   log.debug("$device.displayName $cmd")
   Integer set_sceen = ((cmd.sceneId + 1) / 2) as Integer
   buttonEvent(set_sceen, false, "digital")
   [ createEvent(name: "setScene", value: "Setting", isStateChange: true, displayed: true) ]
 }
+*/
 
 def zwaveEvent(physicalgraph.zwave.commands.configurationv2.ConfigurationReport cmd) {
   logger("$device.displayName $cmd")
@@ -406,11 +414,14 @@ def on() {
   log.debug("$device.displayName on()")
 
   state.lastActive = new Date().time
-  buttonEvent(1, false, "digital")
+  
+  if (0) { // Add option to have digital commands execute buttons
+    buttonEvent(1, false, "digital")
+  }
 
   delayBetween([
-    zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: 1).format(),
-    zwave.switchBinaryV1.switchBinaryGet().format(),
+    zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0xFF, sceneId: 1).format(),
+    // zwave.switchBinaryV1.switchBinaryGet().format(),
   ])
 }
 
@@ -418,7 +429,10 @@ def off() {
   log.debug("$device.displayName off()")
 
   state.lastActive = new Date().time
-  buttonEvent(2, false, "digital")
+  
+  if (0) { // Add option to have digital commands execute buttons
+    buttonEvent(2, false, "digital")
+  }
 
   if (settings.disbableDigitalOff) {
     logger("..off() disabled")
@@ -427,8 +441,8 @@ def off() {
 
   delayBetween([
     // zwave.switchBinaryV1.switchBinarySet(switchValue: 0x00).format(),
-    zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: 2).format(),
-    zwave.switchBinaryV1.switchBinaryGet().format(),
+    zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0xFF, sceneId: 2).format(),
+    // zwave.switchBinaryV1.switchBinaryGet().format(),
   ])
 }
 
@@ -436,19 +450,24 @@ def off() {
  * PING is used by Device-Watch in attempt to reach the Device
  * */
 def ping() {
-  log.debug "ping() called (poll to follow)"
-  poll()
+  log.debug "ping()"
+  zwave.switchBinaryV1.switchBinaryGet().format()
 }
 
 def refresh() {
-  logger("refresh() called (poll to follow)")
-  response( poll() )
+  logger("refresh()")
+  if (0) {
+  response( zwave.switchBinaryV1.switchBinaryGet() )
+  }
+  zwave.switchBinaryV1.switchBinaryGet().format()
 }
 
 def poll() {
-  delayBetween([
-    zwave.switchBinaryV1.switchBinaryGet().format(),
-  ])
+  logger("poll()")
+  zwave.switchBinaryV1.switchBinaryGet().format()
+  if (0) {
+    zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 0x00).format()
+  }
 }
 
 void indicatorWhenOn() {
@@ -529,7 +548,12 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneSupported
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotification cmd) {
-  logger("$device.displayName $cmd")
+  log.debug("$device.displayName $cmd")
+  
+  if ( cmd.sequenceNumber > 1 && cmd.sequenceNumber < state.sequenceNumber ) {
+    return [ createEvent(descriptionText: "Late sequenceNumber  $cmd", isStateChange: false, displayed: true) ]
+  }
+  state.sequenceNumber= cmd.sequenceNumber
 
   def result = []
 
@@ -539,14 +563,11 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
     case 1:
     // Up
     switch (cmd.keyAttributes) {
-      case 1:
       case 2:
-      buttonEvent(cmd.sceneNumber, cmd.keyAttributes == 2 ? true : false, "physical")      
-      result << response(delayBetween([
-                              zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format(),
-                             ], 5000))
-      case 0:     
-      sendEvent(name: "switch", value: "on", type: "physical")
+      case 0:    
+      buttonEvent(cmd.sceneNumber, cmd.keyAttributes == 0 ? false : true, "physical")
+      case 1:
+      result << createEvent(name: "switch", value: cmd.sceneNumber == 1 ? "on" : "off", type: "physical")
       break;
       case 3:
       // 2 Times
@@ -564,14 +585,11 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
     case 2:
     // Down
     switch (cmd.keyAttributes) {
-      case 1:
       case 2:
-      buttonEvent(cmd.sceneNumber, cmd.keyAttributes == 2 ? true : false, "physical")
-      result << response(delayBetween([
-                              zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber).format(),
-                             ], 5000))
       case 0:
-      sendEvent(name: "switch", value: "on", type: "physical")
+      buttonEvent(cmd.sceneNumber, cmd.keyAttributes == 0 ? false : true, "physical")
+      case 1:
+      result << createEvent(name: "switch", value: cmd.sceneNumber == 1 ? "on" : "off", type: "physical")
       break;
       case 3:
       // 2 Times
@@ -593,6 +611,10 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
 
   result << createEvent(name: "keyAttributes", value: cmd.keyAttributes, isStateChange: true, displayed: true)
   result << createEvent(name: "Scene", value: cmd.sceneNumber, isStateChange: true, displayed: true)
+  
+  if ( 0 ) { // cmd.keyAttributes ) {
+    result << response(zwave.sceneActivationV1.sceneActivationSet(dimmingDuration: 0, sceneId: cmd.sceneNumber))
+  }
   
   return result
 }
@@ -723,19 +745,19 @@ def prepDevice() {
     zwave.firmwareUpdateMdV1.firmwareMdGet(),
     //zwave.associationV2.associationGet(groupingIdentifier: 0x01),
     zwave.associationV2.associationGroupingsGet(),
-    zwave.switchBinaryV1.switchBinaryGet(),
     zwave.centralSceneV1.centralSceneSupportedGet(),
     zwave.zwaveCmdClassV1.requestNodeInfo(),
     zwave.switchAllV1.switchAllGet(),
     zwave.sceneActuatorConfV1.sceneActuatorConfGet(sceneId: 0x00),
-    zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true),
-    zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 0, level: 0, override: true),
+    // zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 1, dimmingDuration: 0, level: 255, override: true),
+    // zwave.sceneActuatorConfV1.sceneActuatorConfSet(sceneId: 2, dimmingDuration: 0, level: 0, override: true),
   ]
 }
 
 def installed() {
   logger("$device.displayName installed()")
   sendEvent(name: "numberOfButtons", value: 8, displayed: false)
+  state.loggingLevelIDE = 4
 
   def zwInfo = getZwaveInfo()
   log.debug("$device.displayName $zwInfo")
@@ -789,7 +811,8 @@ def updated() {
     settings.indicatorStatus = "when off"
     state.indicatorStatus = settings.indicatorStatus
   }
-
+  
+  if (0) {
   switch (settings.indicatorStatus) {
     case "when on":
     indicatorWhenOn()
@@ -803,6 +826,7 @@ def updated() {
     default:
     indicatorWhenOn()
     break
+  }
   }
 
   sendEvent(name: "driverVersion", value: getDriverVersion(), descriptionText: getDriverVersion(), isStateChange: true, displayed: true)
